@@ -19,6 +19,7 @@ else
 SHELL = bash -x
 endif
 
+GOEXE ?= go
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell $(GOEXE) env GOBIN))
 GOBIN=$(shell $(GOEXE) env GOPATH)/bin
