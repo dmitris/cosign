@@ -13,6 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+ifeq (,$(shell echo $$DEBUG))
+else
+SHELL = bash -x
+endif
+
+GOEXE ?= go
+ifeq (,$(shell echo $$DEBUG))
+else
+SHELL = bash -x
+endif
+
 GOEXE ?= go
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell $(GOEXE) env GOBIN))
@@ -28,7 +39,7 @@ GIT_TAG ?= dirty-tag
 GIT_VERSION ?= $(shell git describe --tags --always --dirty)
 GIT_HASH ?= $(shell git rev-parse HEAD)
 DATE_FMT = +%Y-%m-%dT%H:%M:%SZ
-SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct)
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --no-show-signature --pretty=%ct)
 ifdef SOURCE_DATE_EPOCH
     BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u "$(DATE_FMT)")
 else
@@ -174,4 +185,4 @@ include test/ci.mk
 
 .PHONY: docgen
 docgen:
-	$(GOEXE) run -tags pivkey,pkcs11key,c$(GOEXE) ./cmd/help/
+	$(GOEXE) run -tags pivkey,pkcs11key,cgo ./cmd/help/
