@@ -138,9 +138,19 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 	ctx, cancel := context.WithTimeout(context.Background(), ro.Timeout)
 	defer cancel()
 
-	sv, err := SignerFromKeyOpts(ctx, signOpts.Cert, signOpts.CertChain, ko)
-	if err != nil {
-		return fmt.Errorf("getting signer: %w", err)
+	// handle the case when the signOpts.CARoots is set (signOpts.CertChain must be empty then)
+	var sv *SignerVerifier
+	var err error
+	if signOpts.CARoots != "" {
+		sv, err = SignerFromKeyOptsWithCARoots(ctx, signOpts.Cert, signOpts.CARoots, ko)
+		if err != nil {
+			return fmt.Errorf("getting signer: %w", err)
+		}
+	} else {
+		sv, err = SignerFromKeyOpts(ctx, signOpts.Cert, signOpts.CertChain, ko)
+		if err != nil {
+			return fmt.Errorf("getting signer: %w", err)
+		}
 	}
 	defer sv.Close()
 	dd := cremote.NewDupeDetector(sv)
@@ -391,7 +401,7 @@ func signerFromSecurityKey(ctx context.Context, keySlot string) (*SignerVerifier
 	}, nil
 }
 
-func signerFromKeyRef(ctx context.Context, certPath, certChainPath, keyRef string, passFunc cosign.PassFunc) (*SignerVerifier, error) {
+func signerFromKeyRef(ctx context.Context, certPath, certChainPath, caRootsPath, keyRef string, passFunc cosign.PassFunc) (*SignerVerifier, error) {
 	k, err := sigs.SignerVerifierFromKeyRef(ctx, keyRef, passFunc)
 	if err != nil {
 		return nil, fmt.Errorf("reading key: %w", err)
@@ -470,33 +480,59 @@ func signerFromKeyRef(ctx context.Context, certPath, certChainPath, keyRef strin
 		certSigner.Cert = pemBytes
 	}
 
-	if certChainPath == "" {
+	if certChainPath == "" && caRootsPath == "" {
 		return certSigner, nil
 	} else if certSigner.Cert == nil {
 		return nil, errors.New("no leaf certificate found or provided while specifying chain")
 	}
 
-	// Handle --cert-chain flag
-	// Accept only PEM encoded certificate chain
-	certChainBytes, err := os.ReadFile(certChainPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading certificate chain from path: %w", err)
-	}
-	certChain, err := cryptoutils.LoadCertificatesFromPEM(bytes.NewReader(certChainBytes))
-	if err != nil {
-		return nil, fmt.Errorf("loading certificate chain: %w", err)
-	}
-	if len(certChain) == 0 {
-		return nil, errors.New("no certificates in certificate chain")
+	// Handle --cert-chain and --ca-roots flags
+	// Accept only PEM encoded certificate chain or CA Roots bundle
+
+	rootPool := x509.NewCertPool()
+	subPool := x509.NewCertPool()
+	switch {
+	case certChainPath != "":
+		{
+			certChainBytes, err := os.ReadFile(certChainPath)
+			if err != nil {
+				return nil, fmt.Errorf("reading certificate chain from path: %w", err)
+			}
+			certChain, err := cryptoutils.LoadCertificatesFromPEM(bytes.NewReader(certChainBytes))
+			if err != nil {
+				return nil, fmt.Errorf("loading certificate chain: %w", err)
+			}
+			if len(certChain) == 0 {
+				return nil, errors.New("no certificates in certificate chain")
+			}
+			rootPool.AddCert(certChain[len(certChain)-1])
+			for _, c := range certChain[:len(certChain)-1] {
+				subPool.AddCert(c)
+			}
+		}
+	case caRootsPath != "":
+		{
+			caRootsBytes, err := os.ReadFile(caRootsPath)
+			if err != nil {
+				return nil, fmt.Errorf("reading CA roots from path: %w", err)
+			}
+			caRoots, err := cryptoutils.LoadCertificatesFromPEM(bytes.NewReader(caRootsBytes))
+			if err != nil {
+				return nil, fmt.Errorf("loading CA roots: %w", err)
+			}
+			if len(caRoots) == 0 {
+				return nil, errors.New("no certificates in CA roots")
+			}
+			for _, c := range caRoots {
+				rootPool.AddCert(c)
+			}
+		}
+	default:
+		return nil, errors.New("invalid - no certificate chain or CA roots provided")
 	}
 	// Verify certificate chain is valid
-	rootPool := x509.NewCertPool()
-	rootPool.AddCert(certChain[len(certChain)-1])
-	subPool := x509.NewCertPool()
-	for _, c := range certChain[:len(certChain)-1] {
-		subPool.AddCert(c)
-	}
-	if _, err := cosign.TrustedCert(leafCert, rootPool, subPool); err != nil {
+	certChains, err := cosign.TrustedCert(leafCert, rootPool, subPool)
+	if err != nil || len(certChains) == 0 {
 		return nil, fmt.Errorf("unable to validate certificate chain: %w", err)
 	}
 	// Verify SCT if present in the leaf certificate.
@@ -511,7 +547,7 @@ func signerFromKeyRef(ctx context.Context, certPath, certChainPath, keyRef strin
 		}
 		var chain []*x509.Certificate
 		chain = append(chain, leafCert)
-		chain = append(chain, certChain...)
+		chain = append(chain, certChains[0]...)
 		if err := cosign.VerifyEmbeddedSCT(context.Background(), chain, pubKeys); err != nil {
 			return nil, err
 		}
@@ -568,6 +604,33 @@ func SignerFromKeyOpts(ctx context.Context, certPath string, certChainPath strin
 		sv, err = signerFromSecurityKey(ctx, ko.Slot)
 	case ko.KeyRef != "":
 		sv, err = signerFromKeyRef(ctx, certPath, certChainPath, ko.KeyRef, ko.PassFunc)
+	default:
+		genKey = true
+		ui.Infof(ctx, "Generating ephemeral keys...")
+		sv, err = signerFromNewKey()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if ko.IssueCertificateForExistingKey || genKey {
+		return keylessSigner(ctx, ko, sv)
+	}
+
+	return sv, nil
+}
+
+// SignerFromKeyOptsWithCARoots is a variant of SignerFromKeyOpts that
+// accepts a CA Root bundle PEM file.
+func SignerFromKeyOptsWithCARoots(ctx context.Context, certPath string, caRoots string, ko options.KeyOpts) (*SignerVerifier, error) {
+	var sv *SignerVerifier
+	var err error
+	genKey := false
+	switch {
+	case ko.Sk:
+		sv, err = signerFromSecurityKey(ctx, ko.Slot)
+	case ko.KeyRef != "":
+		sv, err = signerFromKeyRefWithCARoots(ctx, certPath, caRoots, ko.KeyRef, ko.PassFunc)
 	default:
 		genKey = true
 		ui.Infof(ctx, "Generating ephemeral keys...")

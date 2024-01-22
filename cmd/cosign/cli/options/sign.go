@@ -23,6 +23,7 @@ import (
 type SignOptions struct {
 	Key                   string
 	Cert                  string
+	CARoots               string
 	CertChain             string
 	Upload                bool
 	Output                string // deprecated: TODO remove when the output flag is fully deprecated
@@ -71,12 +72,20 @@ func (o *SignOptions) AddFlags(cmd *cobra.Command) {
 		"path to the X.509 certificate in PEM format to include in the OCI Signature")
 	_ = cmd.Flags().SetAnnotation("certificate", cobra.BashCompFilenameExt, []string{"cert"})
 
+	cmd.Flags().StringVar(&o.CARoots, "ca-roots", "",
+		"path to a bundle file of CA certificates in PEM format which will be needed "+
+			"when building the certificate chains for the signing certificate. "+
+			"Conflicts with --certificate-chain.")
+	_ = cmd.Flags().SetAnnotation("ca-roots", cobra.BashCompFilenameExt, []string{"cert"})
+
 	cmd.Flags().StringVar(&o.CertChain, "certificate-chain", "",
 		"path to a list of CA X.509 certificates in PEM format which will be needed "+
 			"when building the certificate chain for the signing certificate. "+
 			"Must start with the parent intermediate CA certificate of the "+
-			"signing certificate and end with the root certificate. Included in the OCI Signature")
+			"signing certificate and end with the root certificate. Included in the OCI Signature. "+
+			"Conflicts with --ca-roots.")
 	_ = cmd.Flags().SetAnnotation("certificate-chain", cobra.BashCompFilenameExt, []string{"cert"})
+	cmd.MarkFlagsMutuallyExclusive("ca-roots", "certificate-chain")
 
 	cmd.Flags().BoolVar(&o.Upload, "upload", true,
 		"whether to upload the signature")
