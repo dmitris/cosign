@@ -25,6 +25,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -179,6 +180,7 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 		}
 	}
 	if keylessVerification(c.KeyRef, c.Sk) {
+		log.Printf("DMDEBUG c.CertChain=%s, c.CARoots=%s, c.KeyRef=%s", c.CertChain, c.CARoots, c.KeyRef)
 		switch {
 		case c.CertChain != "":
 			chain, err := loadCertChainFromFileOrURL(c.CertChain)
