@@ -16,17 +16,18 @@
 
 set -ex
 
+DOCKER="sudo podman"
 echo "setting up OIDC provider"
 pushd ./test/fakeoidc
 oidcimg=$(ko build main.go --local)
-docker network ls | grep fulcio_default || docker network create fulcio_default
-docker run -d --rm -p 8080:8080 --network fulcio_default --name fakeoidc $oidcimg
+$DOCKER network ls | grep fulcio_default || $DOCKER network create fulcio_default
+$DOCKER run -d --rm -p 8080:8080 --network fulcio_default --name fakeoidc $oidcimg
 cleanup_oidc() {
     echo "cleaning up oidc"
-    docker stop fakeoidc
+    $DOCKER stop fakeoidc
 }
 trap cleanup_oidc EXIT
-oidc_ip=$(docker inspect fakeoidc | jq -r '.[0].NetworkSettings.Networks.fulcio_default.IPAddress')
+oidc_ip=$($DOCKER inspect fakeoidc | jq -r '.[0].NetworkSettings.Networks.fulcio_default.IPAddress')
 export OIDC_URL="http://${oidc_ip}:8080"
 cat <<EOF > /tmp/fulcio-config.json
 {
@@ -59,10 +60,10 @@ export FULCIO_METRICS_PORT=2113
 export FULCIO_CONFIG=/tmp/fulcio-config.json
 for repo in rekor fulcio; do
     pushd $repo
-    docker-compose up -d
+    sudo podman-compose up -d
     echo -n "waiting up to 60 sec for system to start"
     count=0
-    until [ $(docker-compose ps | grep -c "(healthy)") == 3 ];
+    until [ $(sudo podman-compose ps | grep -c "(healthy)") == 3 ];
     do
         if [ $count -eq 6 ]; then
            echo "! timeout reached"
@@ -80,7 +81,7 @@ cleanup_services() {
     cleanup_oidc
     for repo in rekor fulcio; do
         pushd $HOME/$repo
-        docker-compose down
+        sudo podman-compose down
         popd
     done
 }
@@ -96,14 +97,14 @@ go test -tags=e2e -v -race ./test/...
 echo "testing sign/verify/clean on private registry"
 cleanup() {
     cleanup_services
-    docker rm -f registry
+    $DOCKER rm -f registry
 }
 trap cleanup EXIT
-docker run -d -p 5000:5000 --restart always -e REGISTRY_STORAGE_DELETE_ENABLED=true --name registry registry:latest
+$DOCKER run -d -p 5000:5000 --restart always -e REGISTRY_STORAGE_DELETE_ENABLED=true --name registry registry:latest
 export COSIGN_TEST_REPO=localhost:5000
 go test -tags=e2e -v ./test/... -run TestSignVerifyClean
 
 # Run the built container to make sure it doesn't crash
 make ko-local
 img="ko.local/cosign:$(git rev-parse HEAD)"
-docker run $img version
+$DOCKER run $img version
