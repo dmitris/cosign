@@ -170,10 +170,46 @@ func (c *VerifyBlobAttestationCommand) Exec(ctx context.Context, artifactPath st
 		}
 	}
 	if keylessVerification(c.KeyRef, c.Sk) {
-		// Use default TUF roots if a cert chain is not provided.
-		// This performs an online fetch of the Fulcio roots. This is needed
-		// for verifying keyless certificates (both online and offline).
-		if c.CertChain == "" {
+		switch {
+		case c.CertChain != "":
+			chain, err := loadCertChainFromFileOrURL(c.CertChain)
+			if err != nil {
+				return err
+			}
+			co.RootCerts = x509.NewCertPool()
+			co.RootCerts.AddCert(chain[len(chain)-1])
+			if len(chain) > 1 {
+				co.IntermediateCerts = x509.NewCertPool()
+				for _, cert := range chain[:len(chain)-1] {
+					co.IntermediateCerts.AddCert(cert)
+				}
+			}
+		case c.CARoots != "":
+			caRoots, err := loadCertChainFromFileOrURL(c.CARoots)
+			if err != nil {
+				return err
+			}
+			co.RootCerts = x509.NewCertPool()
+			if len(caRoots) > 0 {
+				for _, cert := range caRoots {
+					co.RootCerts.AddCert(cert)
+				}
+			}
+			if c.CAIntermediates != "" {
+				caIntermediates, err := loadCertChainFromFileOrURL(c.CAIntermediates)
+				if err != nil {
+					return err
+				}
+				if len(caIntermediates) > 0 {
+					co.IntermediateCerts = x509.NewCertPool()
+					for _, cert := range caIntermediates {
+						co.IntermediateCerts.AddCert(cert)
+					}
+				}
+			}
+		default:
+			// This performs an online fetch of the Fulcio roots from a TUF repository.
+			// This is needed for verifying keyless certificates (both online and offline).
 			co.RootCerts, err = fulcio.GetRoots()
 			if err != nil {
 				return fmt.Errorf("getting Fulcio roots: %w", err)
