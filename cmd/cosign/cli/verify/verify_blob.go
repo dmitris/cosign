@@ -28,7 +28,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/rekor"
 	"github.com/sigstore/cosign/v2/internal/ui"
@@ -53,6 +52,8 @@ type VerifyBlobCmd struct {
 	options.KeyOpts
 	options.CertVerifyOptions
 	CertRef                      string
+	CAIntermediates              string
+	CARoots                      string
 	CertChain                    string
 	SigRef                       string
 	CertGithubWorkflowTrigger    string
@@ -152,54 +153,8 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		}
 	}
 	if keylessVerification(c.KeyRef, c.Sk) {
-		switch {
-		case c.CertChain != "":
-			chain, err := loadCertChainFromFileOrURL(c.CertChain)
-			if err != nil {
-				return err
-			}
-			co.RootCerts = x509.NewCertPool()
-			co.RootCerts.AddCert(chain[len(chain)-1])
-			if len(chain) > 1 {
-				co.IntermediateCerts = x509.NewCertPool()
-				for _, cert := range chain[:len(chain)-1] {
-					co.IntermediateCerts.AddCert(cert)
-				}
-			}
-		case c.CARoots != "":
-			caRoots, err := loadCertChainFromFileOrURL(c.CARoots)
-			if err != nil {
-				return err
-			}
-			co.RootCerts = x509.NewCertPool()
-			if len(caRoots) > 0 {
-				for _, cert := range caRoots {
-					co.RootCerts.AddCert(cert)
-				}
-			}
-			if c.CAIntermediates != "" {
-				caIntermediates, err := loadCertChainFromFileOrURL(c.CAIntermediates)
-				if err != nil {
-					return err
-				}
-				if len(caIntermediates) > 0 {
-					co.IntermediateCerts = x509.NewCertPool()
-					for _, cert := range caIntermediates {
-						co.IntermediateCerts.AddCert(cert)
-					}
-				}
-			}
-		default:
-			// This performs an online fetch of the Fulcio roots from a TUF repository.
-			// This is needed for verifying keyless certificates (both online and offline).
-			co.RootCerts, err = fulcio.GetRoots()
-			if err != nil {
-				return fmt.Errorf("getting Fulcio roots: %w", err)
-			}
-			co.IntermediateCerts, err = fulcio.GetIntermediates()
-			if err != nil {
-				return fmt.Errorf("getting Fulcio intermediates: %w", err)
-			}
+		if err := handleKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+			return err
 		}
 	}
 
