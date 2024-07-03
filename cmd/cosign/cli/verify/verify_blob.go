@@ -152,10 +152,13 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 			return fmt.Errorf("getting Rekor public keys: %w", err)
 		}
 	}
-	if keylessVerification(c.KeyRef, c.Sk) {
-		if err := loadCertsKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
-			return err
-		}
+
+	if err := loadCerts(keylessVerification(c.KeyRef, c.Sk),
+		c.CertChain,
+		c.CARoots,
+		c.CAIntermediates,
+		co); err != nil {
+		return err
 	}
 
 	// Keys are optional!
@@ -240,7 +243,8 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 	}
 	// Set a cert chain if provided.
 	var chainPEM []byte
-	if c.CertChain != "" {
+	switch {
+	case c.CertChain != "":
 		chain, err := loadCertChainFromFileOrURL(c.CertChain)
 		if err != nil {
 			return err
@@ -260,6 +264,8 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		if err != nil {
 			return err
 		}
+	case c.CARoots != "":
+		// TODO(dmitris) insert CA roots + intermediates into the signature options for verification
 	}
 
 	// Gather the cert for the signature and add the cert along with the

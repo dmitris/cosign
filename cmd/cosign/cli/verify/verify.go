@@ -174,11 +174,10 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 			return fmt.Errorf("getting Rekor public keys: %w", err)
 		}
 	}
-	if keylessVerification(c.KeyRef, c.Sk) {
-		if err := loadCertsKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
-			return err
-		}
+	if err := loadCerts(keylessVerification(c.KeyRef, c.Sk), c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+		return err
 	}
+
 	keyRef := c.KeyRef
 	certRef := c.CertRef
 
@@ -511,16 +510,17 @@ func shouldVerifySCT(ignoreSCT bool, keyRef string, sk bool) bool {
 	return true
 }
 
-// loadCertsKeylessVerification loads certificates for the verification of keyless signatures
-// for the verify command.
+// loadCerts loads certificates provided as a certificate chain or CA roots + CA intermediate
+// certificate files. If both certChain and caRootsFile are empty strings, the Fulcio roots are loaded,
+// but only in the case of keyless verification.
 //
 // TODO - mention additionally verify-attestation, verify-blob, verify-blob-attestation
 // commands when they are extended to call this function.
 //
 // The co *cosign.CheckOpts is both input and output parameter - it gets updated
 // with the root and intermediate certificates needed for verification.
-// If both certChain and caRootsFile are empty strings, the Fulcio roots are loaded.
-func loadCertsKeylessVerification(certChainFile string,
+func loadCerts(keylessVerification bool,
+	certChainFile string,
 	caRootsFile string,
 	caIntermediatesFile string,
 	co *cosign.CheckOpts) error {
@@ -539,6 +539,7 @@ func loadCertsKeylessVerification(certChainFile string,
 				co.IntermediateCerts.AddCert(cert)
 			}
 		}
+
 	case caRootsFile != "":
 		caRoots, err := loadCertChainFromFileOrURL(caRootsFile)
 		if err != nil {
@@ -562,7 +563,8 @@ func loadCertsKeylessVerification(certChainFile string,
 				}
 			}
 		}
-	default:
+
+	case keylessVerification:
 		// This performs an online fetch of the Fulcio roots from a TUF repository.
 		// This is needed for verifying keyless certificates (both online and offline).
 		co.RootCerts, err = fulcio.GetRoots()
@@ -573,6 +575,9 @@ func loadCertsKeylessVerification(certChainFile string,
 		if err != nil {
 			return fmt.Errorf("getting Fulcio intermediates: %w", err)
 		}
+
+	default: // do nothing if keylessVerification is false and no certChain or caRootsFile is provided
 	}
+
 	return nil
 }

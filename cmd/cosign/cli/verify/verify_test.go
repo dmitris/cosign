@@ -264,7 +264,7 @@ func TestVerifyCertMissingIssuer(t *testing.T) {
 	}
 }
 
-func TestLoadCertsKeylessVerification(t *testing.T) {
+func TestLoadCerts(t *testing.T) {
 	certs := getTestCerts(t)
 	certChainFile := makeCertChainFile(t, certs.RootCertPEM, certs.SubCertPEM, certs.LeafCertPEM)
 	rootsFile, intermediatesFile := makeRootsIntermediatesFiles(t, certs.RootCertPEM, certs.SubCertPEM)
@@ -275,10 +275,15 @@ func TestLoadCertsKeylessVerification(t *testing.T) {
 		caIntermediates  string
 		co               *cosign.CheckOpts
 		sigstoreRootFile string
+		nonKeyless       bool
 		wantErr          bool
 	}{
 		{
 			name:    "default fulcio",
+			wantErr: false,
+		},
+		{
+			name:    "non-keyless no-op",
 			wantErr: false,
 		},
 		{
@@ -337,7 +342,7 @@ func TestLoadCertsKeylessVerification(t *testing.T) {
 				tt.co = &cosign.CheckOpts{}
 			}
 
-			err := loadCertsKeylessVerification(tt.certChain, tt.caRoots, tt.caIntermediates, tt.co)
+			err := loadCerts(!tt.nonKeyless, tt.certChain, tt.caRoots, tt.caIntermediates, tt.co)
 			if err == nil && tt.wantErr {
 				t.Fatalf("expected error but got none")
 			} else if err != nil && !tt.wantErr {

@@ -157,10 +157,8 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 		}
 	}
 
-	if keylessVerification(c.KeyRef, c.Sk) {
-		if err := loadCertsKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
-			return err
-		}
+	if err := loadCerts(keylessVerification(c.KeyRef, c.Sk), c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+		return err
 	}
 
 	keyRef := c.KeyRef

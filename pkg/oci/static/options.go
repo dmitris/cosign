@@ -33,6 +33,8 @@ type options struct {
 	RFC3161Timestamp        *bundle.RFC3161Timestamp
 	Cert                    []byte
 	Chain                   []byte
+	RootCerts               []byte
+	IntermediateCerts       [][]byte
 	Annotations             map[string]string
 	RecordCreationTimestamp bool
 }
@@ -111,6 +113,14 @@ func WithCertChain(cert, chain []byte) Option {
 	return func(o *options) {
 		o.Cert = cert
 		o.Chain = chain
+	}
+}
+
+// Wr sets the CA root and intermediates certificates for this signature.
+func WithRootsIntermediates(roots []byte, intermediates [][]byte) Option {
+	return func(o *options) {
+		o.RootCerts = roots
+		o.IntermediateCerts = intermediates
 	}
 }
 
