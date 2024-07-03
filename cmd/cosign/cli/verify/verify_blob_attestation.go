@@ -171,7 +171,7 @@ func (c *VerifyBlobAttestationCommand) Exec(ctx context.Context, artifactPath st
 		}
 	}
 	if keylessVerification(c.KeyRef, c.Sk) {
-		if err := handleKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+		if err := loadCertsKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
 			return err
 		}
 	}
