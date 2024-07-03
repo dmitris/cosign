@@ -41,6 +41,9 @@ func SignBlob() *cobra.Command {
   # sign a blob with a local key pair file
   cosign sign-blob --key cosign.key <FILE>
 
+  # sign a blob with a key, attaching a certificate and certificate chain
+  cosign sign --key cosign.key --cert cosign.crt --cert-chain chain.crt <FILE>
+
   # sign a blob with a key stored in an environment variable
   cosign sign-blob --key env://[ENV_VAR] <FILE>
 
