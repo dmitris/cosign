@@ -174,8 +174,10 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 			return fmt.Errorf("getting Rekor public keys: %w", err)
 		}
 	}
-	if err := loadCerts(keylessVerification(c.KeyRef, c.Sk), c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
-		return err
+	if keylessVerification(c.KeyRef, c.Sk) {
+		if err := loadCerts(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+			return err
+		}
 	}
 
 	keyRef := c.KeyRef
@@ -519,8 +521,7 @@ func shouldVerifySCT(ignoreSCT bool, keyRef string, sk bool) bool {
 //
 // The co *cosign.CheckOpts is both input and output parameter - it gets updated
 // with the root and intermediate certificates needed for verification.
-func loadCerts(keylessVerification bool,
-	certChainFile string,
+func loadCerts(certChainFile string,
 	caRootsFile string,
 	caIntermediatesFile string,
 	co *cosign.CheckOpts) error {
@@ -564,7 +565,7 @@ func loadCerts(keylessVerification bool,
 			}
 		}
 
-	case keylessVerification:
+	default:
 		// This performs an online fetch of the Fulcio roots from a TUF repository.
 		// This is needed for verifying keyless certificates (both online and offline).
 		co.RootCerts, err = fulcio.GetRoots()
@@ -575,8 +576,6 @@ func loadCerts(keylessVerification bool,
 		if err != nil {
 			return fmt.Errorf("getting Fulcio intermediates: %w", err)
 		}
-
-	default: // do nothing if keylessVerification is false and no certChain or caRootsFile is provided
 	}
 
 	return nil

@@ -275,15 +275,10 @@ func TestLoadCerts(t *testing.T) {
 		caIntermediates  string
 		co               *cosign.CheckOpts
 		sigstoreRootFile string
-		nonKeyless       bool
 		wantErr          bool
 	}{
 		{
 			name:    "default fulcio",
-			wantErr: false,
-		},
-		{
-			name:    "non-keyless no-op",
 			wantErr: false,
 		},
 		{
@@ -342,7 +337,7 @@ func TestLoadCerts(t *testing.T) {
 				tt.co = &cosign.CheckOpts{}
 			}
 
-			err := loadCerts(!tt.nonKeyless, tt.certChain, tt.caRoots, tt.caIntermediates, tt.co)
+			err := loadCerts(tt.certChain, tt.caRoots, tt.caIntermediates, tt.co)
 			if err == nil && tt.wantErr {
 				t.Fatalf("expected error but got none")
 			} else if err != nil && !tt.wantErr {

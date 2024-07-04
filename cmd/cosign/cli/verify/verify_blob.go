@@ -153,12 +153,10 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		}
 	}
 
-	if err := loadCerts(keylessVerification(c.KeyRef, c.Sk),
-		c.CertChain,
-		c.CARoots,
-		c.CAIntermediates,
-		co); err != nil {
-		return err
+	if keylessVerification(c.KeyRef, c.Sk) {
+		if err := loadCerts(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+			return err
+		}
 	}
 
 	// Keys are optional!
