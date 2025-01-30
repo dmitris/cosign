@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -37,15 +38,20 @@ import (
 // TODO (priyawadhwa@): write the attestations
 func WriteSignedImageIndexImages(ref name.Reference, sii oci.SignedImageIndex, opts ...Option) error {
 	repo := ref.Context()
+	log.Printf("DMDEBUG 41 WriteSignedImageIndexImages ref=%s, repo=%s", ref, repo)
 	o := makeOptions(repo, opts...)
 
 	// write the image index if there is one
 	ii, err := sii.SignedImageIndex(v1.Hash{})
 	if err != nil {
+		log.Printf("DMDEBUG 47 WriteSignedImageIndexImages err=%v", err)
 		return fmt.Errorf("signed image index: %w", err)
+	} else {
+		log.Printf("DMDEBUG 50 WriteSignedImageIndexImages ii=%v", ii)
 	}
 	if ii != nil {
 		if err := remote.WriteIndex(ref, ii, o.ROpt...); err != nil {
+			log.Printf("DMDEBUG 54 WriteSignedImageIndexImages remote.WriteIndex ii=%v err=%v", ii, err)
 			return fmt.Errorf("writing index: %w", err)
 		}
 	}
@@ -53,10 +59,12 @@ func WriteSignedImageIndexImages(ref name.Reference, sii oci.SignedImageIndex, o
 	// write the image if there is one
 	si, err := sii.SignedImage(v1.Hash{})
 	if err != nil {
+		log.Printf("DMDEBUG 62 WriteSignedImageIndexImages sli.SignedImage err=%v", err)
 		return fmt.Errorf("signed image: %w", err)
 	}
 	if si != nil {
 		if err := remoteWrite(ref, si, o.ROpt...); err != nil {
+			log.Printf("DMDEBUG 67 WriteSignedImageIndexImages remoteWrite si=%v err=%v", si, err)
 			return fmt.Errorf("remote write: %w", err)
 		}
 	}
