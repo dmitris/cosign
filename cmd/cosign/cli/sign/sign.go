@@ -192,7 +192,9 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 			}
 			err = signDigest(ctx, digest, staticPayload, ko, signOpts, annotations, dd, sv, se)
 			if err != nil {
-				return fmt.Errorf("signing digest: %w", err)
+				// return fmt.Errorf("signing digest: %w", err)
+				return fmt.Errorf("DMDEBUG ERROR signing digest, img=%s, ref=%s, digest=%s, error=%w",
+				inputImg, ref, digest, err)
 			}
 			continue
 		}
