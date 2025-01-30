@@ -193,8 +193,8 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 			err = signDigest(ctx, digest, staticPayload, ko, signOpts, annotations, dd, sv, se)
 			if err != nil {
 				// return fmt.Errorf("signing digest: %w", err)
-				return fmt.Errorf("DMDEBUG ERROR signing digest, img=%s, ref=%s, digest=%s, error=%w",
-				inputImg, ref, digest, err)
+				return fmt.Errorf("DMDEBUG ERROR 196 signing digest, img=%s, ref=%s, digest=%s, error=%w",
+					inputImg, ref, digest, err)
 			}
 			continue
 		}
@@ -211,10 +211,11 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 				return fmt.Errorf("computing digest: %w", err)
 			}
 			digest := ref.Context().Digest(d.String())
-			log.Printf("DMDEBUG 212 walking entity, d: %s, digest: %s", d.Hex, digest.String())
+			log.Printf("DMDEBUG 214 walking entity, d: %s, digest: %s", d.Hex, digest.String())
 			err = signDigest(ctx, digest, staticPayload, ko, signOpts, annotations, dd, sv, se)
 			if err != nil {
-				return fmt.Errorf("signing digest: %w", err)
+				// return fmt.Errorf("signing digest: %w", err)
+				return fmt.Errorf("DMDEBUG 218 signing digest: %w", err)
 			}
 			return ErrDone
 		}); err != nil {
@@ -228,6 +229,7 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 func signDigest(ctx context.Context, digest name.Digest, payload []byte, ko options.KeyOpts, signOpts options.SignOptions,
 	annotations map[string]interface{},
 	dd mutate.DupeDetector, sv *SignerVerifier, se oci.SignedEntity) error {
+	log.Printf("DMDEBUG 232 signDigest digest=%s, payload: %v", digest, payload)
 	var err error
 	// The payload can be passed to skip generation.
 	if len(payload) == 0 {
@@ -273,6 +275,7 @@ func signDigest(ctx context.Context, digest name.Digest, payload []byte, ko opti
 
 	ociSig, _, err := s.Sign(ctx, bytes.NewReader(payload))
 	if err != nil {
+		log.Printf("DMDEBUG 278 signDigest error in s.Sign: %v", err)
 		return err
 	}
 
