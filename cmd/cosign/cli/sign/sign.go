@@ -25,6 +25,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,9 +171,12 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 	}
 	annotations := am.Annotations
 	for _, inputImg := range imgs {
+		log.Printf("DMDEBUG Signing image %s, signOpts.Recursive: %t", inputImg, signOpts.Recursive)
 		ref, err := ParseOCIReference(ctx, inputImg, regOpts.NameOptions()...)
 		if err != nil {
 			return err
+		} else {
+			log.Printf("DMDEBUG Parsed reference %s", ref)
 		}
 		ref, err = GetAttachedImageRef(ref, signOpts.Attachment, opts...)
 		if err != nil {
@@ -205,6 +209,7 @@ func SignCmd(ro *options.RootOptions, ko options.KeyOpts, signOpts options.SignO
 				return fmt.Errorf("computing digest: %w", err)
 			}
 			digest := ref.Context().Digest(d.String())
+			log.Printf("DMDEBUG 212 walking entity, d: %s, digest: %s", d.Hex, digest.String())
 			err = signDigest(ctx, digest, staticPayload, ko, signOpts, annotations, dd, sv, se)
 			if err != nil {
 				return fmt.Errorf("signing digest: %w", err)
@@ -279,6 +284,7 @@ func signDigest(ctx context.Context, digest name.Digest, payload []byte, ko opti
 		// Add digest to suffix to differentiate each image during recursive signing
 		if signOpts.Recursive {
 			outputSignature = fmt.Sprintf("%s-%s", outputSignature, strings.Replace(digest.DigestStr(), ":", "-", 1))
+			log.Printf("DMDEBUG 287 signDigest outputSignature: %s", outputSignature)
 		}
 		if err := os.WriteFile(outputSignature, []byte(b64sig), 0600); err != nil {
 			return fmt.Errorf("create signature file: %w", err)
@@ -290,6 +296,7 @@ func signDigest(ctx context.Context, digest name.Digest, payload []byte, ko opti
 		if signOpts.Recursive {
 			outputPayload = fmt.Sprintf("%s-%s", outputPayload, strings.Replace(digest.DigestStr(), ":", "-", 1))
 		}
+		log.Printf("DMDEBUG 287 signDigest outputPayload: %s", outputPayload)
 		if err := os.WriteFile(outputPayload, payload, 0600); err != nil {
 			return fmt.Errorf("create payload file: %w", err)
 		}
