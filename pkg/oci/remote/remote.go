@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/google/go-containerregistry/pkg/name"
@@ -171,6 +172,8 @@ func signatures(digestable oci.SignedEntity, o *options) (oci.Signatures, error)
 	h, err := digestable.Digest()
 	if err != nil {
 		return nil, err
+	} else {
+		log.Printf("DMDEBUG remote.go:175 signatures h=%s", h)
 	}
 	return Signatures(o.TargetRepository.Tag(normalize(h, o.TagPrefix, o.SignatureSuffix)), o.OriginalOptions...)
 }

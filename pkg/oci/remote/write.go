@@ -72,14 +72,17 @@ func WriteSignedImageIndexImages(ref name.Reference, sii oci.SignedImageIndex, o
 	// write the signatures
 	sigs, err := sii.Signatures()
 	if err != nil {
+		log.Printf("DMDEBUG write.go:75 err=%v", err)
 		return err
 	}
 	if sigs != nil { // will be nil if there are no associated signatures
 		sigsTag, err := SignatureTag(ref, opts...)
 		if err != nil {
+			log.Printf("DMDEBUG write.go:81 err=%v", err)
 			return fmt.Errorf("sigs tag: %w", err)
 		}
 		if err := remoteWrite(sigsTag, sigs, o.ROpt...); err != nil {
+			log.Printf("DMDEBUG write.go:85 sigsTag=%s err=%v", sigsTag, err)
 			return err
 		}
 	}
@@ -116,11 +119,29 @@ func WriteSignatures(repo name.Repository, se oci.SignedEntity, opts ...Option) 
 	if err != nil {
 		return err
 	}
-	log.Printf("DMDEBUG 119 h=%s", h.Hex)
-	tag := o.TargetRepository.Tag(normalize(h, o.TagPrefix, o.SignatureSuffix))
-
+	norm := normalize(h, o.TagPrefix, o.SignatureSuffix)
+	tag := o.TargetRepository.Tag(norm)
+	log.Printf("DMDEBUG 119 h=%s, TagPrefix=%s, normalized=%s, tag: %s",
+		h.Hex, o.TagPrefix, norm, tag)
+	sigsDebug, err := sigs.Get()
+	if err != nil {
+		log.Printf("DMDEBUG 128 sigsGet() err: %v", err)
+	}
+	for _, sig := range sigsDebug {
+		b, err := sig.Signature()
+		if err != nil {
+			log.Printf("DMDEBUG 133 sig.Signature() err: %v", err)
+		} else {
+			log.Printf("DMDEBUG 135 sig.Signature() b: %v", b)
+		}
+		log.Printf("DMDEBUG 137 sig: %v", sig)
+	}
 	// Write the Signatures image to the tag, with the provided remote.Options
-	return remoteWrite(tag, sigs, o.ROpt...)
+	err = remoteWrite(tag, sigs, o.ROpt...)
+	if err != nil {
+		log.Printf("DMDEBUG 142 remoteWrite() err: %v", err)
+	}
+	return err
 }
 
 // WriteAttestations publishes the attestations attached to the given entity
