@@ -107,6 +107,7 @@ func WriteSignatures(repo name.Repository, se oci.SignedEntity, opts ...Option) 
 	// Access the signature list to publish
 	sigs, err := se.Signatures()
 	if err != nil {
+		log.Printf("DMDEBUG 110 repo=%v, err: %v", repo, err)
 		return err
 	}
 
@@ -115,6 +116,7 @@ func WriteSignatures(repo name.Repository, se oci.SignedEntity, opts ...Option) 
 	if err != nil {
 		return err
 	}
+	log.Printf("DMDEBUG 119 h=%s", h.Hex)
 	tag := o.TargetRepository.Tag(normalize(h, o.TagPrefix, o.SignatureSuffix))
 
 	// Write the Signatures image to the tag, with the provided remote.Options

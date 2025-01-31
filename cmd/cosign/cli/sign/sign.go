@@ -355,9 +355,9 @@ func signDigest(ctx context.Context, digest name.Digest, payload []byte, ko opti
 	// Check if we are overriding the signatures repository location
 	repo, _ := ociremote.GetEnvTargetRepository()
 	if repo.RepositoryStr() == "" {
-		ui.Infof(ctx, "Pushing signature to: %s", digest.Repository)
+		ui.Infof(ctx, "DMDEBUG 358 Pushing signature to digest.Repository: %s", digest.Repository)
 	} else {
-		ui.Infof(ctx, "Pushing signature to: %s", repo.RepositoryStr())
+		ui.Infof(ctx, "DMDEBUG 360 Pushing signature to repo.RepositoryStr(): %s", repo.RepositoryStr())
 	}
 
 	// Publish the signatures associated with this entity (using OCI 1.1+ behavior)
@@ -366,7 +366,9 @@ func signDigest(ctx context.Context, digest name.Digest, payload []byte, ko opti
 	}
 
 	// Publish the signatures associated with this entity
-	return ociremote.WriteSignatures(digest.Repository, newSE, walkOpts...)
+	err = ociremote.WriteSignatures(digest.Repository, newSE, walkOpts...)
+	log.Printf("DMDEBUG 370 ociremote.WriteSignatures repo %s, err: %v", digest.Repository, err)
+	return err
 }
 
 func signerFromSecurityKey(ctx context.Context, keySlot string) (*SignerVerifier, error) {
