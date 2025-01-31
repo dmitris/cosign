@@ -123,19 +123,6 @@ func WriteSignatures(repo name.Repository, se oci.SignedEntity, opts ...Option) 
 	tag := o.TargetRepository.Tag(norm)
 	log.Printf("DMDEBUG 119 h=%s, TagPrefix=%s, normalized=%s, tag: %s",
 		h.Hex, o.TagPrefix, norm, tag)
-	sigsDebug, err := sigs.Get()
-	if err != nil {
-		log.Printf("DMDEBUG 128 sigsGet() err: %v", err)
-	}
-	for _, sig := range sigsDebug {
-		b, err := sig.Signature()
-		if err != nil {
-			log.Printf("DMDEBUG 133 sig.Signature() err: %v", err)
-		} else {
-			log.Printf("DMDEBUG 135 sig.Signature() b: %v", b)
-		}
-		log.Printf("DMDEBUG 137 sig: %v", sig)
-	}
 	// Write the Signatures image to the tag, with the provided remote.Options
 	err = remoteWrite(tag, sigs, o.ROpt...)
 	if err != nil {
