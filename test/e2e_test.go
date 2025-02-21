@@ -798,6 +798,10 @@ func TestAttestVerifyURI(t *testing.T) {
 }
 
 func attestVerify(t *testing.T, predicateType, attestation, goodCue, badCue string) {
+	attestVerifyKeyOptions(t, predicateType, attestation, goodCue, badCue, nil)
+}
+
+func attestVerifyKeyOptions(t *testing.T, predicateType, attestation, goodCue, badCue string, ko *options.KeyOpts) {
 	repo, stop := reg(t)
 	defer stop()
 	td := t.TempDir()
@@ -834,9 +838,11 @@ func attestVerify(t *testing.T, predicateType, attestation, goodCue, badCue stri
 	}
 
 	// Now attest the image
-	ko := options.KeyOpts{KeyRef: privKeyPath, PassFunc: passFunc}
+	if ko == nil {
+		ko = &options.KeyOpts{KeyRef: privKeyPath, PassFunc: passFunc}
+	}
 	attestCmd := attest.AttestCommand{
-		KeyOpts:        ko,
+		KeyOpts:        *ko,
 		PredicatePath:  attestationPath,
 		PredicateType:  predicateType,
 		Timeout:        30 * time.Second,

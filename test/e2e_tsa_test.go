@@ -82,6 +82,15 @@ func TestTSAMTLS(t *testing.T) {
 		},
 	}
 	must(verifyCmd.Exec(context.Background(), []string{imgName}), t)
+
+	attestVerifyKeyOptions(t,
+		"slsaprovenance",
+		`{ "buildType": "x", "builder": { "id": "2" }, "recipe": {} }`,
+		`predicate: builder: id: "2"`,
+		`predicate: builder: id: "1"`,
+		&ko,
+	)
+
 }
 
 func TestSignBlobTSAMTLS(t *testing.T) {
