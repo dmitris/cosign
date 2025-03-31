@@ -78,7 +78,7 @@ func (o *AttestOptions) AddFlags(cmd *cobra.Command) {
 		"do not upload the generated attestation")
 
 	cmd.Flags().BoolVarP(&o.Recursive, "recursive", "r", false,
-		"if a multi-arch image is specified, additionally sign each discrete image")
+		"if a multi-arch image is specified, additionally attest each discrete image (NB - not yet implemented)")
 
 	cmd.Flags().BoolVarP(&o.Replace, "replace", "", false,
 		"")
