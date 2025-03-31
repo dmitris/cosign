@@ -80,6 +80,7 @@ type AttestCommand struct {
 	Timeout                 time.Duration
 	TlogUpload              bool
 	TSAServerURL            string
+	Recursive               bool
 	RekorEntryType          string
 	RecordCreationTimestamp bool
 }

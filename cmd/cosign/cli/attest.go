@@ -104,6 +104,7 @@ func Attest() *cobra.Command {
 				Replace:                 o.Replace,
 				Timeout:                 ro.Timeout,
 				TlogUpload:              o.TlogUpload,
+				Recursive:               o.Recursive,
 				RekorEntryType:          o.RekorEntryType,
 				RecordCreationTimestamp: o.RecordCreationTimestamp,
 			}
