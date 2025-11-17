@@ -441,6 +441,13 @@ func CheckCertificatePolicy(cert *x509.Certificate, co *CheckOpts) error {
 	sans := cryptoutils.GetSubjectAlternateNames(cert)
 	// If there are identities given, go through them and if one of them
 	// matches, call that good, otherwise, return an error.
+	log.Printf("DMDEBUG oidcIssuer=%s\n", oidcIssuer)
+	for i, san := range sans {
+		log.Printf("DMDEBUG %d: SAN=%s\n", i, san)
+	}
+	for i, identity := range co.Identities {
+		log.Printf("DMDEBUG Identity %d: Issuer=%s, IssuerRegExp=%s, Subject=%s, SubjectRegExp=%s\n", i, identity.Issuer, identity.IssuerRegExp, identity.Subject, identity.SubjectRegExp)
+	}
 	if len(co.Identities) > 0 {
 		for _, identity := range co.Identities {
 			issuerMatches := false
