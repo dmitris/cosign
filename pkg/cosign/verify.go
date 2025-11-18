@@ -288,26 +288,35 @@ type payloader interface {
 }
 
 func verifyOCIAttestation(ctx context.Context, verifier signature.Verifier, att payloader) error {
+	payloadStart := time.Now()
 	payload, err := att.Payload()
+	fmt.Fprintf(os.Stderr, "[TIMING]       att.Payload() took %v\n", time.Since(payloadStart))
 	if err != nil {
 		return err
 	}
 
+	unmarshalStart := time.Now()
 	env := ssldsse.Envelope{}
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]       json.Unmarshal took %v\n", time.Since(unmarshalStart))
 
 	if env.PayloadType != types.IntotoPayloadType {
 		return &VerificationFailure{
 			fmt.Errorf("invalid payloadType %s on envelope. Expected %s", env.PayloadType, types.IntotoPayloadType),
 		}
 	}
+	verifierStart := time.Now()
 	dssev, err := ssldsse.NewEnvelopeVerifier(&dsse.VerifierAdapter{SignatureVerifier: verifier})
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]       NewEnvelopeVerifier took %v\n", time.Since(verifierStart))
+
+	dsseVerifyStart := time.Now()
 	_, err = dssev.Verify(ctx, &env)
+	fmt.Fprintf(os.Stderr, "[TIMING]       dssev.Verify (DSSE) took %v\n", time.Since(dsseVerifyStart))
 	return err
 }
 
@@ -338,10 +347,12 @@ func ValidateAndUnpackCert(cert *x509.Certificate, co *CheckOpts) (signature.Ver
 // certificate chains up to a trusted root using intermediate cert passed as separate argument.
 // Optionally verifies the subject and issuer of the certificate.
 func ValidateAndUnpackCertWithIntermediates(cert *x509.Certificate, co *CheckOpts, intermediateCerts *x509.CertPool) (signature.Verifier, error) {
+	loadVerifierStart := time.Now()
 	verifier, err := signature.LoadVerifier(cert.PublicKey, crypto.SHA256)
 	if err != nil {
 		return nil, fmt.Errorf("invalid certificate found on signature: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]       LoadVerifier from cert public key took %v\n", time.Since(loadVerifierStart))
 
 	// Handle certificates where the Subject Alternative Name is not set to a supported
 	// GeneralName (RFC 5280 4.2.1.6). Go only supports DNS, IP addresses, email addresses,
@@ -360,28 +371,34 @@ func ValidateAndUnpackCertWithIntermediates(cert *x509.Certificate, co *CheckOpt
 	// Now verify the cert, then the signature.
 
 	// If trusted root is available, use the verifiers from sigstore-go (preferred).
+	certChainStart := time.Now()
 	var chains [][]*x509.Certificate
 	if co.TrustedMaterial != nil {
 		if chains, err = verify.VerifyLeafCertificate(cert.NotBefore, cert, co.TrustedMaterial); err != nil {
 			return nil, err
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]       VerifyLeafCertificate took %v\n", time.Since(certChainStart))
 	} else {
 		// If the trusted root is not available, use the verifiers from cosign (legacy).
 		chains, err = TrustedCert(cert, co.RootCerts, intermediateCerts)
 		if err != nil {
 			return nil, err
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]       TrustedCert (legacy) took %v\n", time.Since(certChainStart))
 	}
 
+	policyStart := time.Now()
 	err = CheckCertificatePolicy(cert, co)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]       CheckCertificatePolicy took %v\n", time.Since(policyStart))
 
 	// If IgnoreSCT is set, skip the SCT check
 	if co.IgnoreSCT {
 		return verifier, nil
 	}
+	sctStart := time.Now()
 	contains, err := ContainsSCT(cert.Raw)
 	if err != nil {
 		return nil, err
@@ -397,6 +414,7 @@ func ValidateAndUnpackCertWithIntermediates(cert *x509.Certificate, co *CheckOpt
 		if err := verify.VerifySignedCertificateTimestamp(chains, 1, co.TrustedMaterial); err != nil {
 			return nil, err
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]       VerifySignedCertificateTimestamp took %v\n", time.Since(sctStart))
 		return verifier, nil
 	}
 
@@ -408,6 +426,7 @@ func ValidateAndUnpackCertWithIntermediates(cert *x509.Certificate, co *CheckOpt
 		if err := VerifyEmbeddedSCT(context.Background(), chains[0], co.CTLogPubKeys); err != nil {
 			return nil, err
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]       VerifyEmbeddedSCT took %v\n", time.Since(sctStart))
 		return verifier, nil
 	}
 	chain := chains[0]
@@ -425,6 +444,7 @@ func ValidateAndUnpackCertWithIntermediates(cert *x509.Certificate, co *CheckOpt
 	if err := VerifySCT(context.Background(), certPEM, chainPEM, co.SCT, co.CTLogPubKeys); err != nil {
 		return nil, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]       VerifySCT took %v\n", time.Since(sctStart))
 
 	return verifier, nil
 }
@@ -578,15 +598,18 @@ func tlogValidateEntry(ctx context.Context, client *client.Rekor, rekorPubKeys *
 	if err != nil {
 		return nil, err
 	}
+	findStart := time.Now()
 	tlogEntries, err := FindTlogEntry(ctx, client, b64sig, payload, pem)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]         FindTlogEntry (online Rekor lookup) took %v\n", time.Since(findStart))
 	if len(tlogEntries) == 0 {
 		return nil, fmt.Errorf("no valid tlog entries found with proposed entry")
 	}
 	// Always return the earliest integrated entry. That
 	// always suffices for verification of signature time.
+	verifyStart := time.Now()
 	var earliestLogEntry models.LogEntryAnon
 	var earliestLogEntryTime *time.Time
 	entryVerificationErrs := make([]string, 0)
@@ -602,6 +625,7 @@ func tlogValidateEntry(ctx context.Context, client *client.Rekor, rekorPubKeys *
 			earliestLogEntry = entry
 		}
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]         VerifyTLogEntryOffline for %d entries took %v\n", len(tlogEntries), time.Since(verifyStart))
 	if earliestLogEntryTime == nil {
 		return nil, fmt.Errorf("no valid tlog entries found %s", strings.Join(entryVerificationErrs, ", "))
 	}
@@ -803,10 +827,13 @@ func verifySignatures(ctx context.Context, sigs oci.Signatures, h v1.Hash, co *C
 func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 	verifyFn signatureVerificationFn, co *CheckOpts) (
 	bundleVerified bool, err error) {
+	internalStart := time.Now()
+	fmt.Fprintf(os.Stderr, "[TIMING]     >> verifyInternal started\n")
 	var acceptableRFC3161Time, acceptableRekorBundleTime *time.Time // Timestamps for the signature we accept, or nil if not applicable.
 
 	var acceptableRFC3161Timestamp *timestamp.Timestamp
 	if co.UseSignedTimestamps {
+		rfc3161Start := time.Now()
 		acceptableRFC3161Timestamp, err = VerifyRFC3161Timestamp(sig, co)
 		if err != nil {
 			return false, fmt.Errorf("unable to verify RFC3161 timestamp bundle: %w", err)
@@ -814,10 +841,16 @@ func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 		if acceptableRFC3161Timestamp != nil {
 			acceptableRFC3161Time = &acceptableRFC3161Timestamp.Time
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]     RFC3161 timestamp verification took %v\n", time.Since(rfc3161Start))
 	}
 
+	tlogSectionStart := time.Now()
+	fmt.Fprintf(os.Stderr, "[TIMING]     About to check tlog (IgnoreTlog=%v)\n", co.IgnoreTlog)
 	if !co.IgnoreTlog {
+		bundleStart := time.Now()
 		bundleVerified, err = VerifyBundle(sig, co)
+		bundleDuration := time.Since(bundleStart)
+		fmt.Fprintf(os.Stderr, "[TIMING]     VerifyBundle took %v (verified=%v, err=%v)\n", bundleDuration, bundleVerified, err != nil)
 		if err != nil {
 			return false, fmt.Errorf("error verifying bundle: %w", err)
 		}
@@ -846,20 +879,30 @@ func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 				return false, err
 			}
 
+			fmt.Fprintf(os.Stderr, "[TIMING]     >> Starting online Rekor lookup (no bundle found)\n")
+			tlogStart := time.Now()
 			e, err := tlogValidateEntry(ctx, co.RekorClient, co.RekorPubKeys, co.TrustedMaterial, sig, pemBytes)
 			if err != nil {
 				return false, err
 			}
+			fmt.Fprintf(os.Stderr, "[TIMING]     tlogValidateEntry (online Rekor lookup) took %v\n", time.Since(tlogStart))
 			t := time.Unix(*e.IntegratedTime, 0)
 			acceptableRekorBundleTime = &t
 			bundleVerified = true
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "[TIMING]     Skipping tlog verification (IgnoreTlog=true)\n")
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]     Tlog section took %v total\n", time.Since(tlogSectionStart))
 
+	certSectionStart := time.Now()
 	verifier := co.SigVerifier
 	if verifier == nil {
+		certValidationStart := time.Now()
 		// If we don't have a public key to check against, we can try a root cert.
+		certFetchStart := time.Now()
 		cert, err := sig.Cert()
+		fmt.Fprintf(os.Stderr, "[TIMING]       sig.Cert() took %v\n", time.Since(certFetchStart))
 		if err != nil {
 			return false, err
 		}
@@ -869,7 +912,9 @@ func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 			}
 		}
 		// Create a certificate pool for intermediate CA certificates, excluding the root
+		chainFetchStart := time.Now()
 		chain, err := sig.Chain()
+		fmt.Fprintf(os.Stderr, "[TIMING]       sig.Chain() took %v\n", time.Since(chainFetchStart))
 		if err != nil {
 			return false, err
 		}
@@ -892,26 +937,37 @@ func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 		if err != nil {
 			return false, err
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]     Certificate validation took %v\n", time.Since(certValidationStart))
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]     Certificate section took %v total\n", time.Since(certSectionStart))
 
 	// 1. Perform cryptographic verification of the signature using the certificate's public key.
+	sigVerifyStart := time.Now()
+	fmt.Fprintf(os.Stderr, "[TIMING]     About to call verifyFn (signature verification)\n")
 	if err := verifyFn(ctx, verifier, sig); err != nil {
 		return false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]     Signature cryptographic verification (verifyFn) took %v\n", time.Since(sigVerifyStart))
 
 	// We can't check annotations without claims, both require unmarshalling the payload.
+	claimVerifyStart := time.Now()
 	if co.ClaimVerifier != nil {
 		if err := co.ClaimVerifier(sig, h, co.Annotations); err != nil {
 			return false, err
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]     ClaimVerifier took %v\n", time.Since(claimVerifyStart))
 	}
 
 	// 2. if a certificate was used, verify the certificate expiration against a time
+	expiryStart := time.Now()
+	certFetch2Start := time.Now()
 	cert, err := sig.Cert()
+	fmt.Fprintf(os.Stderr, "[TIMING]       sig.Cert() (second call) took %v\n", time.Since(certFetch2Start))
 	if err != nil {
 		return false, err
 	}
 	if cert != nil {
+		expiryStart := time.Now()
 		// use the provided Rekor bundle or RFC3161 timestamp to check certificate expiration
 		expirationChecked := false
 
@@ -942,8 +998,12 @@ func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 				return false, fmt.Errorf("checking expiry on certificate with bundle: %w", err)
 			}
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]     Certificate expiry check took %v\n", time.Since(expiryStart))
+	} else {
+		fmt.Fprintf(os.Stderr, "[TIMING]     Certificate expiry section took %v (no cert)\n", time.Since(expiryStart))
 	}
 
+	fmt.Fprintf(os.Stderr, "[TIMING]     Total verifyInternal took %v\n", time.Since(internalStart))
 	return bundleVerified, nil
 }
 
@@ -1032,24 +1092,36 @@ func VerifyImageAttestations(ctx context.Context, signedImgRef name.Reference, c
 	// This is a carefully optimized sequence for fetching the attestations of
 	// the entity that minimizes registry requests when supplied with a digest
 	// input.
+	registryStart := time.Now()
 	digest, err := ociremote.ResolveDigest(signedImgRef, co.RegistryClientOpts...)
 	if err != nil {
 		return nil, false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]   ResolveDigest took %v\n", time.Since(registryStart))
+
 	h, err := v1.NewHash(digest.Identifier())
 	if err != nil {
 		return nil, false, err
 	}
+
+	attTagStart := time.Now()
 	st, err := ociremote.AttestationTag(digest, co.RegistryClientOpts...)
 	if err != nil {
 		return nil, false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]   AttestationTag took %v\n", time.Since(attTagStart))
+
+	fetchSigsStart := time.Now()
 	atts, err := ociremote.Signatures(st, co.RegistryClientOpts...)
 	if err != nil {
 		return nil, false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]   Fetch attestation signatures took %v\n", time.Since(fetchSigsStart))
 
-	return VerifyImageAttestation(ctx, atts, h, co)
+	verifyStart := time.Now()
+	result, bundleVer, err := VerifyImageAttestation(ctx, atts, h, co)
+	fmt.Fprintf(os.Stderr, "[TIMING]   VerifyImageAttestation took %v\n", time.Since(verifyStart))
+	return result, bundleVer, err
 }
 
 // VerifyLocalImageAttestations verifies attestations from a saved, local image, without any network calls,
@@ -1104,6 +1176,7 @@ func VerifyBlobAttestation(ctx context.Context, att oci.Signature, h v1.Hash, co
 }
 
 func VerifyImageAttestation(ctx context.Context, atts oci.Signatures, h v1.Hash, co *CheckOpts) (checkedAttestations []oci.Signature, bundleVerified bool, err error) {
+	verifyAttStart := time.Now()
 	if atts == nil {
 		return nil, false, errors.New("no attestations provided")
 	}
@@ -1111,6 +1184,8 @@ func VerifyImageAttestation(ctx context.Context, atts oci.Signatures, h v1.Hash,
 	if err != nil {
 		return nil, false, err
 	}
+
+	fmt.Fprintf(os.Stderr, "[TIMING]     Verifying %d attestations with %d workers\n", len(sl), co.MaxWorkers)
 
 	attestations := make([]oci.Signature, len(sl))
 	bundlesVerified := make([]bool, len(sl))
@@ -1122,20 +1197,30 @@ func VerifyImageAttestation(ctx context.Context, atts oci.Signatures, h v1.Hash,
 	t := throttler.New(workers, len(sl))
 	for i, att := range sl {
 		go func(att oci.Signature, index int) {
+			goroutineStart := time.Now()
+			fmt.Fprintf(os.Stderr, "[TIMING]       Attestation %d goroutine started\n", index)
+
+			copyStart := time.Now()
 			att, err := static.Copy(att)
 			if err != nil {
 				t.Done(err)
 				return
 			}
+			fmt.Fprintf(os.Stderr, "[TIMING]       Attestation %d static.Copy took %v\n", index, time.Since(copyStart))
+
+			verifyInternalStart := time.Now()
 			if err := func(att oci.Signature) error {
 				verified, err := verifyInternal(ctx, att, h, verifyOCIAttestation, co)
 				bundlesVerified[index] = verified
 				return err
 			}(att); err != nil {
+				fmt.Fprintf(os.Stderr, "[TIMING]       Attestation %d failed after %v (goroutine total: %v): %v\n", index, time.Since(verifyInternalStart), time.Since(goroutineStart), err)
 				t.Done(err)
 				return
 			}
+			fmt.Fprintf(os.Stderr, "[TIMING]       Attestation %d verifyInternal call took %v\n", index, time.Since(verifyInternalStart))
 
+			fmt.Fprintf(os.Stderr, "[TIMING]       Attestation %d total goroutine time %v\n", index, time.Since(goroutineStart))
 			attestations[index] = att
 			t.Done(nil)
 		}(att, i)
@@ -1165,6 +1250,7 @@ func VerifyImageAttestation(ctx context.Context, atts oci.Signatures, h v1.Hash,
 		}
 	}
 
+	fmt.Fprintf(os.Stderr, "[TIMING]     Total VerifyImageAttestation took %v (%d/%d succeeded)\n", time.Since(verifyAttStart), len(checkedAttestations), len(sl))
 	return checkedAttestations, bundleVerified, nil
 }
 
@@ -1213,6 +1299,7 @@ func VerifyBundle(sig oci.Signature, co *CheckOpts) (bool, error) {
 	}
 
 	if co.TrustedMaterial != nil {
+		tmStart := time.Now()
 		payload := bundle.Payload
 		logID, err := hex.DecodeString(payload.LogID)
 		if err != nil {
@@ -1223,9 +1310,12 @@ func VerifyBundle(sig oci.Signature, co *CheckOpts) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("converting tlog entry: %w", err)
 		}
+		setStart := time.Now()
 		if err := tlog.VerifySET(entry, co.TrustedMaterial.RekorLogs()); err != nil {
 			return false, fmt.Errorf("verifying bundle with trusted root: %w", err)
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING]         VerifySET (trusted material) took %v\n", time.Since(setStart))
+		fmt.Fprintf(os.Stderr, "[TIMING]         Total bundle verification (trusted material path) took %v\n", time.Since(tmStart))
 		return true, nil
 	}
 	// Make sure all the rekorPubKeys are ecsda.PublicKeys
@@ -1235,13 +1325,17 @@ func VerifyBundle(sig oci.Signature, co *CheckOpts) (bool, error) {
 		}
 	}
 
+	compareSigStart := time.Now()
 	if err := compareSigs(bundle.Payload.Body.(string), sig); err != nil {
 		return false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]         compareSigs took %v\n", time.Since(compareSigStart))
 
+	comparePKStart := time.Now()
 	if err := comparePublicKey(bundle.Payload.Body.(string), sig, co); err != nil {
 		return false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]         comparePublicKey took %v\n", time.Since(comparePKStart))
 
 	pubKey, ok := co.RekorPubKeys.Keys[bundle.Payload.LogID]
 	if !ok {
@@ -1249,10 +1343,12 @@ func VerifyBundle(sig oci.Signature, co *CheckOpts) (bool, error) {
 			fmt.Errorf("verifying bundle: rekor log public key not found for payload"),
 		}
 	}
+	setStart := time.Now()
 	err = VerifySET(bundle.Payload, bundle.SignedEntryTimestamp, pubKey.PubKey.(*ecdsa.PublicKey))
 	if err != nil {
 		return false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]         VerifySET (legacy) took %v\n", time.Since(setStart))
 	if pubKey.Status != tuf.Active {
 		fmt.Fprintf(os.Stderr, "**Info** Successfully verified Rekor entry using an expired verification key\n")
 	}
@@ -1675,10 +1771,12 @@ func GetBundles(_ context.Context, signedImgRef name.Reference, registryClientOp
 
 // verifyImageAttestationsSigstoreBundle verifies attestations from attached sigstore bundles
 func verifyImageAttestationsSigstoreBundle(ctx context.Context, signedImgRef name.Reference, co *CheckOpts, nameOpts ...name.Option) (checkedAttestations []oci.Signature, atLeastOneBundleVerified bool, err error) {
+	bundleStart := time.Now()
 	bundles, hash, err := GetBundles(ctx, signedImgRef, co.RegistryClientOpts, nameOpts...)
 	if err != nil {
 		return nil, false, err
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]   GetBundles (new format) took %v (found %d bundles)\n", time.Since(bundleStart), len(bundles))
 
 	digestBytes, err := hex.DecodeString(hash.Hex)
 	if err != nil {
@@ -1694,9 +1792,12 @@ func verifyImageAttestationsSigstoreBundle(ctx context.Context, signedImgRef nam
 	if co.MaxWorkers == 0 {
 		workers = cosign.DefaultMaxWorkers
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING]     Verifying %d bundles with %d workers\n", len(bundles), workers)
+	verifyStart := time.Now()
 	t := throttler.New(workers, len(bundles))
 	for i, bundle := range bundles {
 		go func(bundle *sgbundle.Bundle, index int) {
+			bundleVerifyStart := time.Now()
 			var att oci.Signature
 			if err := func(bundle *sgbundle.Bundle) error {
 				_, err := VerifyNewBundle(ctx, co, artifactPolicyOption, bundle)
@@ -1732,10 +1833,12 @@ func verifyImageAttestationsSigstoreBundle(ctx context.Context, signedImgRef nam
 
 				return err
 			}(bundle); err != nil {
+				fmt.Fprintf(os.Stderr, "[TIMING]       Bundle %d failed after %v: %v\n", index, time.Since(bundleVerifyStart), err)
 				t.Done(err)
 				return
 			}
 
+			fmt.Fprintf(os.Stderr, "[TIMING]       Bundle %d verified in %v\n", index, time.Since(bundleVerifyStart))
 			attestations[index] = att
 			t.Done(nil)
 		}(bundle, i)
@@ -1760,5 +1863,6 @@ func verifyImageAttestationsSigstoreBundle(ctx context.Context, signedImgRef nam
 		}
 	}
 
+	fmt.Fprintf(os.Stderr, "[TIMING]     Total bundle verification took %v (%d/%d succeeded)\n", time.Since(verifyStart), len(checkedAttestations), len(bundles))
 	return checkedAttestations, atLeastOneBundleVerified, nil
 }

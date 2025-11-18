@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v3/cmd/cosign/cli/options"
@@ -72,6 +73,9 @@ type VerifyAttestationCommand struct {
 
 // Exec runs the verification command
 func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (err error) {
+	overallStart := time.Now()
+	fmt.Fprintf(os.Stderr, "[TIMING] Starting verify-attestation at %s\n", overallStart.Format(time.RFC3339))
+
 	if len(images) == 0 {
 		return flag.ErrHelp
 	}
@@ -85,6 +89,9 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 	if options.NOf(c.KeyRef, c.Sk) > 1 {
 		return &options.KeyParseError{}
 	}
+
+	setupStart := time.Now()
+	fmt.Fprintf(os.Stderr, "[TIMING] Starting setup phase at +%v\n", setupStart.Sub(overallStart))
 
 	var identities []cosign.Identity
 	if c.KeyRef == "" {
@@ -120,6 +127,7 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 
 	// Check to see if we are using the new bundle format or not
 	if !c.LocalImage {
+		bundleCheckStart := time.Now()
 		ref, err := name.ParseReference(images[0], c.NameOptions...)
 		if err == nil && c.NewBundleFormat {
 			newBundles, _, err := cosign.GetBundles(ctx, ref, co.RegistryClientOpts, c.NameOptions...)
@@ -127,33 +135,41 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 				co.NewBundleFormat = false
 			}
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING] Bundle format check took %v\n", time.Since(bundleCheckStart))
 	}
 
 	if c.CheckClaims {
 		co.ClaimVerifier = cosign.IntotoSubjectClaimVerifier
 	}
 
+	trustedMaterialStart := time.Now()
 	err = SetTrustedMaterial(ctx, c.TrustedRootPath, c.CertChain, c.CARoots, c.CAIntermediates, c.TSACertChainPath, co)
 	if err != nil {
 		return fmt.Errorf("setting trusted material: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING] SetTrustedMaterial took %v\n", time.Since(trustedMaterialStart))
 
 	if err = CheckSigstoreBundleUnsupportedOptions(*c, co); err != nil {
 		return err
 	}
 
+	legacyClientsStart := time.Now()
 	err = SetLegacyClientsAndKeys(ctx, c.IgnoreTlog, shouldVerifySCT(c.IgnoreSCT, c.KeyRef, c.Sk), keylessVerification(c.KeyRef, c.Sk), c.RekorURL, c.TSACertChainPath, c.CertChain, c.CARoots, c.CAIntermediates, co)
 	if err != nil {
 		return fmt.Errorf("setting up clients and keys: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "[TIMING] SetLegacyClientsAndKeys took %v\n", time.Since(legacyClientsStart))
 
 	// Keys are optional!
+	loadVerifierStart := time.Now()
 	var closeSV func()
 	co.SigVerifier, _, closeSV, err = LoadVerifierFromKeyOrCert(ctx, c.KeyRef, c.Slot, c.CertRef, c.CertChain, c.HashAlgorithm, c.Sk, false, co)
 	if err != nil {
 		return fmt.Errorf("loading verifierfrom key opts: %w", err)
 	}
 	defer closeSV()
+	fmt.Fprintf(os.Stderr, "[TIMING] LoadVerifierFromKeyOrCert took %v\n", time.Since(loadVerifierStart))
+	fmt.Fprintf(os.Stderr, "[TIMING] Total setup phase took %v\n", time.Since(setupStart))
 
 	if c.CertRef != "" && c.SCTRef != "" {
 		sct, err := os.ReadFile(filepath.Clean(c.SCTRef))
@@ -171,9 +187,13 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 	fulcioVerified := (co.SigVerifier == nil)
 
 	for _, imageRef := range images {
+		imageStart := time.Now()
+		fmt.Fprintf(os.Stderr, "[TIMING] Processing image %s at +%v\n", imageRef, imageStart.Sub(overallStart))
+
 		var verified []oci.Signature
 		var bundleVerified bool
 
+		verifyStart := time.Now()
 		if c.LocalImage {
 			verified, bundleVerified, err = cosign.VerifyLocalImageAttestations(ctx, imageRef, co)
 			if err != nil {
@@ -190,6 +210,7 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 				return err
 			}
 		}
+		fmt.Fprintf(os.Stderr, "[TIMING] VerifyImageAttestations took %v (found %d attestations)\n", time.Since(verifyStart), len(verified))
 
 		var cuePolicies, regoPolicies []string
 
@@ -204,6 +225,7 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 			}
 		}
 
+		policyStart := time.Now()
 		var checked []oci.Signature
 		var validationErrors []error
 		// To aid in determining if there's a mismatch in what predicateType
@@ -223,7 +245,9 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 
 			if len(cuePolicies) > 0 {
 				ui.Infof(ctx, "will be validating against CUE policies: %v", cuePolicies)
+				cueStart := time.Now()
 				cueValidationErr := cue.ValidateJSON(payload, cuePolicies)
+				fmt.Fprintf(os.Stderr, "[TIMING] CUE policy validation took %v\n", time.Since(cueStart))
 				if cueValidationErr != nil {
 					validationErrors = append(validationErrors, cueValidationErr)
 					continue
@@ -232,7 +256,9 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 
 			if len(regoPolicies) > 0 {
 				ui.Infof(ctx, "will be validating against Rego policies: %v", regoPolicies)
+				regoStart := time.Now()
 				regoValidationErrs := rego.ValidateJSON(payload, regoPolicies)
+				fmt.Fprintf(os.Stderr, "[TIMING] Rego policy validation took %v\n", time.Since(regoStart))
 				if len(regoValidationErrs) > 0 {
 					validationErrors = append(validationErrors, regoValidationErrs...)
 					continue
@@ -240,6 +266,9 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 			}
 
 			checked = append(checked, vp)
+		}
+		if len(c.Policies) > 0 {
+			fmt.Fprintf(os.Stderr, "[TIMING] Total policy validation took %v\n", time.Since(policyStart))
 		}
 
 		if len(validationErrors) > 0 {
@@ -258,7 +287,9 @@ func (c *VerifyAttestationCommand) Exec(ctx context.Context, images []string) (e
 		PrintVerificationHeader(ctx, imageRef, co, bundleVerified, fulcioVerified)
 		// The attestations are always JSON, so use the raw "text" mode for outputting them instead of conversion
 		PrintVerification(ctx, checked, "text")
+		fmt.Fprintf(os.Stderr, "[TIMING] Total time for image %s: %v\n", imageRef, time.Since(imageStart))
 	}
 
+	fmt.Fprintf(os.Stderr, "[TIMING] Overall verify-attestation took %v\n", time.Since(overallStart))
 	return nil
 }
